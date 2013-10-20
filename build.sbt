@@ -5,7 +5,7 @@ name := "argot"
 
 organization := "org.clapper"
 
-version := "0.3.5"
+version := "0.3.5-benwing"
 
 scalaVersion := "2.8.1"
 
