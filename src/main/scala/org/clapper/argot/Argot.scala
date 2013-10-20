@@ -728,6 +728,18 @@ object ArgotConverters {
  * @param compactUsage force a more compact usage message
  * @param outputWidth  width of the output; used when wrapping the usage
  *                     message
+ * @param maxOutputIndent
+ *                     Maximum indentation of the help text in the usage
+ *                     message.  The indentation is normally calculated based
+ *                     on the maximum width of an option and its associated
+ *                     `valueName`, plus 2 spaces.  However, if this would
+ *                     exceed the maximum indentation, it is placed on a line
+ *                     of its own and does not affect the indentation
+ *                     calculation.
+ * @param description  Text describing the program.  This text is placed
+ *                     between the line begining "Usage: ..." and the
+ *                     description of the options and positional parameters;
+ *                     hence, it should not include such text itself.
  * @param preUsage     optional message to issue before the usage message
  *                     (e.g., a copyright and/or version string)
  * @param postUsage    optional message to issue after the usage message
@@ -740,6 +752,8 @@ object ArgotConverters {
 class ArgotParser(programName: String,
                   compactUsage: Boolean = false,
                   outputWidth: Int = 79,
+                  maxOutputIndent: Int = 30,
+                  description: Option[String] = None,
                   preUsage: Option[String] = None,
                   postUsage: Option[String] = None,
                   sortUsage: Boolean = true) {
@@ -1162,15 +1176,6 @@ class ArgotParser(programName: String,
       }
     }
 
-    val mmax = MathUtil.max _
-
-    // Calculate the maximum length of all the option strings.
-
-    val lengths: Iterable[Int] = for {opt  <- allOptions.values
-                                      name <- opt.names}
-                                   yield optString(name, opt).length
-    val maxOptLen = lengths.max
-
     // Create the output buffer.
 
     val buf = new StringBuilder
@@ -1193,12 +1198,36 @@ class ArgotParser(programName: String,
         }
       )
     }
+    
+    buf.append("\n\n")
 
-    buf.append('\n')
+    description.foreach(s => buf.append(wrapper.wrap(s) + "\n\n"))
 
-    // Build the option summary.
+    /*********  Build the option summary. **********/
 
-    def handleOneOption(key: String) = {
+    // Compute the prefix of the given heading within the specified
+    // maximum length.  If it doesn't fit, put the heading on its own line.
+    def computePrefix(heading: String, maxlen: Int) = {
+      val len = heading.length + SPACES_BETWEEN
+      if (len > maxlen) {
+        buf.append(heading + "\n")
+        " " * maxlen
+      } else
+        heading + "  " + (" " * (maxlen - len))
+    }
+
+    // Calculate the maximum length of all the option strings or
+    // positional arguments.  Ignore headings that would be larger than
+    // maxOutputIndent; these go on a separate line.
+    def computeMaxPrefixLen(headings: Iterable[String]) = {
+      val lengths =
+        for {heading <- headings
+             len = heading.length + SPACES_BETWEEN}
+          yield if (len > maxOutputIndent) 0 else len
+      lengths.max
+    }
+
+    def handleOneOption(key: String, maxOptLen: Int) = {
       if (! compactUsage)
         buf.append("\n")
 
@@ -1214,9 +1243,7 @@ class ArgotParser(programName: String,
         buf.append(optString(name, opt) + "\n")
 
       val name = sorted.takeRight(1)(0)
-      val os = optString(name, opt)
-      val padding = (maxOptLen - os.length) + SPACES_BETWEEN
-      val prefix = os + (" " * padding)
+      val prefix = computePrefix(optString(name, opt), maxOptLen)
       val wrapper = new WordWrapper(prefix=prefix,
                                     wrapWidth=outputWidth)
       val desc = opt match {
@@ -1239,8 +1266,7 @@ class ArgotParser(programName: String,
       if (! compactUsage)
         buf.append('\n')
 
-      val padding = (maxNameLen - p.name.length) + SPACES_BETWEEN
-      val prefix = p.name + (" " * padding)
+      val prefix = computePrefix(p.name, maxNameLen)
       val wrapper = new WordWrapper(prefix=prefix, wrapWidth=outputWidth)
       val desc = p match {
         case o: HasValue[_] =>
@@ -1258,19 +1284,31 @@ class ArgotParser(programName: String,
     }
 
     if (allOptions.size > 0) {
-      buf.append("\nOPTIONS\n")
+      // Calculate the maximum length of all the option strings.
+      val headings =
+        for {opt <- allOptions.values
+             name <- opt.names}
+          yield optString(name, opt)
+      val maxOptLen = computeMaxPrefixLen(headings)
+
+      buf.append("OPTIONS\n")
+
       val optionKeys =
         if (sortUsage)
           allOptions.keySet.toList.sortWith(_ < _)
         else
           allOptions.keySet.toList
 
-      optionKeys.foreach(handleOneOption)
+      optionKeys.foreach(handleOneOption(_, maxOptLen))
     }
 
     if (parameters.size > 0) {
-      buf.append("\nPARAMETERS\n")
-      val maxNameLen = parameters.map(_.name.length).max
+      // Calculate the maximum length of all the "parameters"
+      // (positional arguments).
+      val maxNameLen = computeMaxPrefixLen(parameters.map(_.name))
+
+      buf.append("\nPOSITIONAL ARGUMENTS\n")
+        
       parameters.toList.foreach(handleOneParameter(_, maxNameLen))
     }
 
