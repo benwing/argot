@@ -421,7 +421,7 @@ extends CommandLineOption[T] {
 /**
  * Base trait for parameter classes
  */
-private[argot] trait Parameter[T]
+trait Parameter[T]
 extends CommandLineArgument[T] with HasValue[T] {
   val convert: (String, Parameter[T]) => T
   val description: String
